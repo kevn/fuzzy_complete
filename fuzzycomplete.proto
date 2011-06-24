@@ -1,0 +1,9 @@
+package Fuzzycomplete;
+
+message User {
+  optional string name = 1;
+  optional string permalink = 2;
+  optional string highlighted_name = 3;
+  optional string highlighted_permalink = 4;
+  optional float  score = 5;
+}

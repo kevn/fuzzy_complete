@@ -1,0 +1,2 @@
+Redis-backed fuzzy string matching, using logic from Jamis Buck's https://github.com/jamis/fuzzy_file_finder
+
