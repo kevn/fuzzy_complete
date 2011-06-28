@@ -1,84 +1,5 @@
-require 'rubygems'
 require 'redis'
-require 'yajl'
 require 'logger'
-
-module FuzzyComplete
-  
-  class CharacterRun < Struct.new(:string, :inside) #:nodoc:
-    def to_s
-      if inside
-        "(#{string})"
-      else
-        string
-      end
-    end
-  end
-  
-  class CodecError < StandardError
-    attr_reader :object, :error
-    def initialize(object, error)
-      @object = object
-      @error  = error
-    end
-  end
-  
-  module Codec
-    class YajlCodec
-    
-      def encode(object)
-        self.class.encoder.encode(object)
-      end
-    
-      def decode(arr)
-        json = arr.inject(""){|str, json_obj| str << json_obj; str }
-        objs = []
-        self.class.parser.parse(json) do |parsed|
-          objs << parsed
-        end
-        objs
-      rescue StandardError => e
-        @parser = nil
-        # TODO: Handle parse errors. Encoder seems to be serializing or
-        # deserializing utf8 chars wrong or something
-        # raise CodecError.new(json, e)
-        raise
-      end
-    
-      def self.encoder
-        @encoder ||= Yajl::Encoder.new
-      end
-      def self.parser
-        @parser ||= Yajl::Parser.new(:symbolize_keys => true)
-      end
-    
-    end
-  
-    class ProtobufCodec
-    
-      def initialize
-        require 'fuzzycomplete.pb'
-      end
-    
-      def encode(object)
-        self.class.object_to_protobuf(object).serialize_to_string
-      end
-    
-      def decode(arr)
-        arr.map do |e|
-          Fuzzycomplete::User.parse(e)
-        end
-      end
-    
-      def self.object_to_protobuf(object)
-        Fuzzycomplete::User.new(object)
-      end
-    
-    end
-  end
-  
-end
-
 
 module FuzzyComplete
 
@@ -107,22 +28,6 @@ module FuzzyComplete
       return results.sort_by{|r| -r[:score] }
     end
 
-    def find_with_redis(bucket, pattern, max=nil)
-      cached = self.decode(@redis.zrevrange(pattern_key(bucket, pattern), 0, -1))
-      if cached.size > 0
-        logger.debug{ "Got cached results" }
-        cached
-      else
-        logger.debug{ "Finding and adding to cache" }
-        results = find_without_redis(bucket, pattern, max)
-        results.each do |result|
-          @redis.zadd(pattern_key(bucket, pattern), result[:score], self.encode(result))
-        end
-        results
-      end
-    end
-    alias find_without_redis find
-    alias find find_with_redis
   
     def search(query, &block)
       pattern = self.class.make_pattern(query)
@@ -236,42 +141,3 @@ module FuzzyComplete
   end
 end
 
-# c = FuzzyComplete.new(File.readlines('names.txt').map(&:chomp), 'foobar', Redis.new, :protobuf)
-# c.logger.level = Logger::WARN
-# c.find('user', ARGV[0]).each{|r| puts [r[:highlighted_name], r[:highlighted_permalink], r[:score]].inspect }
-
-require 'benchmark'
-
-people = File.readlines('names.txt').map(&:chomp).map{|line| line.split('|')}
-
-c_yajl   = FuzzyComplete::Find.new(File.readlines('names.txt').map(&:chomp), 'foobar', Redis.new, FuzzyComplete::Codec::YajlCodec.new)
-c_protob = FuzzyComplete::Find.new(File.readlines('names.txt').map(&:chomp), 'foobar', Redis.new, FuzzyComplete::Codec::ProtobufCodec.new)
-
-c_yajl.logger.level = Logger::WARN
-c_protob.logger.level = Logger::WARN
-
-puts "Generating query terms"
-query_terms = (0..500).to_a.map do |i|
-  name, permalink = people[rand(people.size)]
-  terms = [name, permalink].compact
-  term = terms[rand(terms.size)]
-  p0 = rand(term.size)
-  len = rand(term.size - p0)
-  term[p0, len]
-end
-
-
-Benchmark.bm do |x|
-  x.report('yajl     ') do
-    system 'ruby clear.rb >/dev/null'
-    query_terms.each do |term|
-      c_yajl.find('user', term)
-    end
-  end
-  x.report('protobuf ') do
-    system 'ruby clear.rb >/dev/null'
-    query_terms.each do |term|
-      c_protob.find('user', term)
-    end
-  end
-end
