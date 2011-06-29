@@ -21,7 +21,8 @@ module FuzzyComplete
         # TODO: Handle parse errors. Encoder seems to be serializing or
         # deserializing utf8 chars wrong or something
         # raise CodecError.new(json, e)
-        raise
+        # raise
+        return []
       end
 
       def self.encoder
